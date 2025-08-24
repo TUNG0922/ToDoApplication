@@ -2,7 +2,7 @@
   <v-app-bar app color="primary" dark>
     <!-- Logo / Title -->
     <v-toolbar-title class="mr-6">
-      ToDo App
+      Task Tracker
     </v-toolbar-title>
 
     <!-- Navigation links -->
