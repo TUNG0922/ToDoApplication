@@ -2,27 +2,61 @@
   <v-app-bar app color="primary" dark>
     <!-- Logo / Title -->
     <v-toolbar-title class="mr-6">
-      Task Tracker
+      Project Task Tracker
     </v-toolbar-title>
 
     <!-- Navigation links -->
-    <v-btn text to="/" exact>
+    <v-btn text @click="goHome">
       Home
     </v-btn>
-    <v-btn text to="/about" exact>
-      About
+    <v-btn text to="/calendar" exact>
+      Calendar
+    </v-btn>
+
+    <v-spacer></v-spacer> <!-- pushes Sign Out to the right -->
+
+    <v-btn text color="red lighten-1" @click="signOut">
+      Sign Out
     </v-btn>
   </v-app-bar>
 </template>
 
 <script>
 export default {
-  name: "SideTop"
+  name: "SideTop",
+  methods: {
+    goHome() {
+      const raw = localStorage.getItem("authUser");
+      if (raw) {
+        try {
+          const user = JSON.parse(raw);
+          if (user && user.email) {
+            // Only navigate if not already on UserDashboard
+            if (this.$route.name !== "UserDashboard") {
+              this.$router.push({ name: "UserDashboard" });
+            }
+            return;
+          }
+        } catch (e) {
+          localStorage.removeItem("authUser");
+        }
+      }
+      // Navigate to SignIn if no user
+      if (this.$route.name !== "SignIn") {
+        this.$router.push({ name: "SignIn" });
+      }
+    },
+
+    signOut() {
+      localStorage.removeItem("authUser");
+      localStorage.removeItem("authToken"); // if you use tokens
+      this.$router.replace({ name: "SignIn" });
+    }
+  }
 }
 </script>
 
 <style scoped>
-/* optional: make active route stand out */
 .v-btn--active {
   border-bottom: 2px solid white;
 }
