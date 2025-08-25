@@ -8,22 +8,18 @@ Vue.use(VueRouter)
 import UserDashboard from '../components/DashboardView/UserDashboard.vue'
 import SignIn from '../components/UserValidation/SignIn.vue'
 import SignUp from '../components/UserValidation/SignUp.vue'
-import About from '../components/views/About.vue'
-import TodoDetail from '../components/views/TodoDetail.vue'
-import Todos from '../components/views/Todos.vue'
+import Calendar from '../components/views/Calendar.vue'
 
 const routes = [
   { path: '/', name: 'SignUp', component: SignUp },
   { path: '/signin', name: 'SignIn', component: SignIn },
-  { path: '/userdashboard/:userEmail/:userName', name: 'UserDashboard', component: UserDashboard, props: true},
-  { path: '/todos', name: 'Todos', component: Todos },
-  { path: '/todos/:id', name: 'TodoDetail', component: TodoDetail, props: true },
-  { path: '/about', name: 'About', component: About },
+  { path: '/userdashboard', name: 'UserDashboard', component: UserDashboard},
+  { path: '/calendar', name: 'Calendar', component: Calendar },
   { path: '*', redirect: '/' }
 ]
 
 const router = new VueRouter({
-  mode: 'hash',
+  mode: 'history',
   base: process.env.BASE_URL,
   routes
 })

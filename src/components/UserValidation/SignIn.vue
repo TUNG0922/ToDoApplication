@@ -125,24 +125,23 @@ export default {
         console.log(data);
 
         if (data && data.success && data.user) {
-          // show success message
-          this.snackbarText = data.message || "Successfully signed in!";
+          // store user info in localStorage
+          localStorage.setItem("authUser", JSON.stringify({
+            email: data.user.email,
+            name: data.user.name
+          }));
+
+          this.snackbarText = "Successfully signed in!";
           this.snackbar = true;
 
-          // clear form
+          // Clear form
           this.email = "";
           this.password = "";
           this.showPassword = false;
           form.resetValidation();
 
-          // navigate to UserDashboard with email & name
-          this.$router.push({ 
-            name: "UserDashboard", 
-            params: { 
-              userEmail: data.user.email, 
-              userName: data.user.name 
-            } 
-          });
+          // Navigate to dashboard
+          this.$router.push({ name: "UserDashboard" });
         } else {
           this.snackbarText = data?.message || "Invalid email or password.";
           this.snackbar = true;

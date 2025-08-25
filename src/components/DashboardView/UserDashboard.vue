@@ -1,83 +1,106 @@
 <template>
-  <v-app>
+  <v-app class="dashboard-bg">
     <SideTop />
 
-    <v-main>
-      <v-container>
-        <div v-if="loading" class="text-center py-8">
-          <v-progress-circular indeterminate />
-          <div class="mt-2">Loading...</div>
-        </div>
-
-        <div v-else-if="error" class="text-center py-8">
-          <v-icon large color="error">mdi-alert-circle</v-icon>
-          <div class="mt-2">{{ error }}</div>
-          <v-btn class="mt-4" color="primary" @click="goSignIn">Go to Sign In</v-btn>
-        </div>
-
-        <div v-else>
-          <h1>User Dashboard</h1>
-          <p class="mb-4">Welcome, <strong>{{ user.name || user.email }}</strong>!</p>
-
-          <v-card class="mb-6" outlined>
-            <v-card-title>User Info</v-card-title>
-            <v-card-text>
-              <div><strong>Name:</strong> {{ user.name || '-' }}</div>
-              <div><strong>Email:</strong> {{ user.email }}</div>
-            </v-card-text>
-          </v-card>
-
+    <v-container fluid class="pt-4">
+      <v-row dense>
+        <!-- Project selection list -->
+        <v-col cols="12" md="4">
           <v-card outlined>
-            <v-card-title>Your Stuff</v-card-title>
-            <v-card-text>
-              Content for <strong>{{ user.email }}</strong> only.
-            </v-card-text>
+            <v-card-title>Select Project</v-card-title>
+            <v-divider></v-divider>
+            <v-list dense nav>
+              <v-list-item
+                v-for="(project, index) in projects"
+                :key="project.id || index"
+                @click="selectProject(project)"
+                :class="{ 'active-project': currentProject === project.name }"
+              >
+                <v-list-item-content>
+                  <v-list-item-title>{{ project.name }}</v-list-item-title>
+                </v-list-item-content>
+              </v-list-item>
+            </v-list>
           </v-card>
 
-          <v-btn class="mt-6" color="error" @click="signOut">Sign Out</v-btn>
-        </div>
-      </v-container>
-    </v-main>
+          <!-- Add Project button -->
+          <v-btn
+            color="primary"
+            class="mt-2"
+            @click="dialog = true"
+            block
+          >
+            Add Project
+          </v-btn>
+        </v-col>
+
+        <!-- Task list for selected project -->
+        <v-col cols="12" md="8">
+          <List :project-name="currentProject" />
+        </v-col>
+      </v-row>
+
+      <!-- Add Project dialog -->
+      <AddProject
+        :dialog.sync="dialog"
+        @project-added="handleProjectAdded"
+      />
+    </v-container>
   </v-app>
 </template>
 
 <script>
+import axios from "axios";
 import SideTop from "../SideView/SideTop.vue";
+import AddProject from "../views/AddProject.vue";
+import List from "./ListView/List.vue";
 
 export default {
   name: "UserDashboard",
-  components: { SideTop },
-
-  props: {
-    userEmail: { type: String, required: true },
-    userName: { type: String, required: true }
-  },
-
+  components: { SideTop, List, AddProject },
   data() {
     return {
-      user: {
-        email: this.userEmail,
-        name: this.userName
-      },
-      loading: false,
-      error: null
+      currentProject: null,
+      projects: [],
+      dialog: false
     };
   },
-
+  mounted() {
+    this.fetchProjects();
+  },
   methods: {
-    signOut() {
-      localStorage.removeItem("authUser");
-      localStorage.removeItem("authToken"); // if using tokens
-      this.$router.replace({ name: "SignIn" });
+    // Fetch all projects
+    async fetchProjects() {
+      try {
+        const res = await axios.get("/api/projects");
+        this.projects = Array.isArray(res.data) ? res.data : [];
+      } catch (err) {
+        console.error("Failed to fetch projects:", err);
+      }
     },
-
-    goSignIn() {
-      this.$router.replace({ name: "SignIn" });
+    // Set current project to fetch tasks for
+    selectProject(project) {
+      this.currentProject = project.name;
+    },
+    // Handle newly added project
+    handleProjectAdded(newProject) {
+      if (newProject) {
+        this.projects.push(newProject);
+        this.currentProject = newProject.name;
+      }
     }
   }
 };
 </script>
 
 <style scoped>
-/* minimal styling */
+.dashboard-bg {
+  background: url('@/assets/blueApp.jpg') no-repeat center center fixed;
+  background-size: cover;
+  min-height: 100vh;
+}
+
+.active-project {
+  background-color: rgba(25, 118, 210, 0.1);
+}
 </style>
