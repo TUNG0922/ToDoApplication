@@ -1,29 +1,24 @@
 <template>
   <v-app>
-    <!-- Calendar directly at the top -->
     <v-container fluid class="pb-6 pt-0">
-      <!-- Header: Month + Year centered, controls on the right -->
+      <!-- Header: Month + Year -->
       <v-row class="align-center mb-3">
         <v-col cols="12" md="6" class="d-flex align-center justify-center justify-md-start">
-          <div class="calendar-title">
-            {{ title }}
-          </div>
+          <div class="calendar-title">{{ title }}</div>
         </v-col>
-
         <v-col cols="12" md="6" class="text-md-right">
-          <v-btn icon @click="prev" :title="'Previous'">
+          <v-btn icon @click="prev" title="Previous">
             <v-icon>mdi-chevron-left</v-icon>
           </v-btn>
-
           <v-btn text @click="goToday">Today</v-btn>
-
-          <v-btn icon @click="next" :title="'Next'">
+          <v-btn icon @click="next" title="Next">
             <v-icon>mdi-chevron-right</v-icon>
           </v-btn>
         </v-col>
       </v-row>
 
       <v-row>
+        <!-- Calendar -->
         <v-col cols="12" md="9">
           <v-sheet elevation="2" class="calendar-sheet">
             <v-calendar
@@ -37,15 +32,22 @@
               :weekdays="[0,1,2,3,4,5,6]"
             >
               <template v-slot:event="{ event }">
-                <div class="event-content">
-                  <span class="event-dot" :style="{ backgroundColor: getEventColor(event) }"></span>
-                  <span class="event-name">{{ event.name }}</span>
+                <div class="calendar-event" :title="event.name">
+                  <div class="event-header">
+                    <span class="event-dot" :style="{ backgroundColor: getEventColor(event) }"></span>
+                    <span class="event-name">{{ event.name }}</span>
+                  </div>
+                  <div class="event-meta">
+                    <span class="event-assignee" v-if="event.assignee">👤 {{ event.assignee }}</span>
+                    <span class="event-priority" v-if="event.priority">{{ event.priority }}</span>
+                  </div>
                 </div>
               </template>
             </v-calendar>
           </v-sheet>
         </v-col>
 
+        <!-- Legend -->
         <v-col cols="12" md="3">
           <v-card outlined class="side-card">
             <v-card-title class="subtitle-1 font-weight-medium">Legend</v-card-title>
@@ -85,7 +87,6 @@
                 <div v-if="selectedEvent?.description">{{ selectedEvent.description }}</div>
                 <div v-else class="grey--text">No description provided.</div>
               </v-col>
-
               <v-col cols="12" sm="6">
                 <strong>Assignee</strong>
                 <div>{{ selectedEvent?.assignee || '-' }}</div>
@@ -143,7 +144,6 @@ export default {
         this.events = [];
       }
     },
-
     mapTasksToEvents() {
       this.events = (this.tasks || [])
         .filter(t => t && t.deadline)
@@ -164,7 +164,6 @@ export default {
           };
         });
     },
-
     parseDateOnly(value) {
       if (!value) return null;
       if (value instanceof Date) return value;
@@ -172,7 +171,6 @@ export default {
       const isDateOnly = /^\d{4}-\d{2}-\d{2}$/.test(s);
       return new Date(isDateOnly ? `${s}T00:00:00` : s);
     },
-
     getEventColor(event) {
       const p = (event.priority || '').toLowerCase();
       if (p === 'high') return '#e53935';
@@ -180,30 +178,25 @@ export default {
       if (p === 'low') return '#43a047';
       return '#1976d2';
     },
-
     onEventClick({ event }) {
       this.selectedEvent = event;
       this.dialog = true;
     },
-
     formatDate(iso) {
       if (!iso) return '-';
       const d = this.parseDateOnly(iso);
       return d instanceof Date && !isNaN(d) ? d.toLocaleDateString() : String(iso);
     },
-
     prev() {
       const cal = this.$refs.calendar;
       if (cal && cal.prev) cal.prev();
       if (cal && cal.focus) this.focus = cal.focus;
     },
-
     next() {
       const cal = this.$refs.calendar;
       if (cal && cal.next) cal.next();
       if (cal && cal.focus) this.focus = cal.focus;
     },
-
     goToday() {
       this.focus = new Date().toISOString().substr(0, 10);
     },
@@ -220,28 +213,75 @@ export default {
 .calendar-sheet {
   height: 780px;
   border-radius: 10px;
-  overflow: hidden;
+  overflow: visible; /* allow content to expand */
 }
 
-.event-content {
+.calendar-event {
+  background: rgba(255, 255, 255, 0.97);
+  border-left: 5px solid #1976d2;
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 6px;
+  font-size: 14px;
+  color: #111;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  min-height: 40px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+  transition: transform 0.1s, box-shadow 0.2s;
+
+  /* allow text to wrap */
+  white-space: normal;
+  word-break: break-word;
+  overflow: visible;
+  height: auto !important; /* override fixed height from Vuetify */
+  max-height: none !important;
+}
+
+.calendar-event:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 15px rgba(0, 0, 0, 0.25);
+}
+
+.event-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 6px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  gap: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  flex-wrap: wrap; /* wrap long titles */
 }
 
 .event-dot {
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
+  flex-shrink: 0;
 }
 
 .event-name {
-  font-size: 13px;
-  font-weight: 600;
+  flex: 1 1 auto;
+  white-space: normal;
+  overflow: visible;
+  word-break: break-word;
+}
+
+.event-meta {
+  font-size: 12px;
+  color: #555;
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  margin-top: 2px;
+}
+
+.event-assignee {
+  font-style: italic;
+}
+
+.event-priority {
+  font-weight: bold;
 }
 
 .side-card {

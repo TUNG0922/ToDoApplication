@@ -8,6 +8,7 @@
             Your Tasks - {{ displayProjectName }}
             <v-spacer></v-spacer>
             <v-btn color="primary" @click="openCreateDialog" :disabled="!projectName">Add Task</v-btn>
+            <v-btn text color="blue" class="ml-2" @click="goBack">Back</v-btn>
           </v-card-title>
 
           <v-card-text class="list-table-container">
@@ -32,6 +33,19 @@
                 {{ formatDate(item.createdAt) }}
               </template>
 
+              <template v-slot:[`item.status`]="{ item, index }">
+                <v-select
+                  :items="['Pending', 'Completed']"
+                  v-model="item.status"
+                  dense
+                  hide-details
+                  outlined
+                  style="max-width: 120px;"
+                  @change="updateStatus(item, index)"
+                  :placeholder="'-'"
+                />
+              </template>
+
               <template v-slot:[`item.actions`]="{ item, index }">
                 <v-btn icon @click="viewDescription(item)" :title="'View ' + item.title">
                   <v-icon color="blue">mdi-eye</v-icon>
@@ -44,6 +58,13 @@
                 <v-btn icon @click="openDeleteDialog(item, index)" :title="'Delete ' + item.title">
                   <v-icon color="red">mdi-delete</v-icon>
                 </v-btn>
+                <!-- COMPLETE ICON -->
+                <v-btn icon 
+                    @click="markComplete(item, index)" 
+                    :disabled="item.status === 'completed'" 
+                    :title="'Mark ' + item.title + ' as complete'">
+                <v-icon color="green">mdi-check-circle</v-icon>
+              </v-btn>
               </template>
 
               <template v-slot:no-data>
@@ -109,13 +130,17 @@
                 />
               </v-col>
               <v-col cols="12" sm="4">
-                <v-text-field
+                <v-autocomplete
                   v-model="createForm.assignee"
+                  :items="users"
+                  item-text="name"
+                  item-value="name"
                   label="Assignee"
                   outlined
                   dense
                   :rules="[rules.required]"
                   required
+                  clearable
                 />
               </v-col>
             </v-row>
@@ -178,10 +203,7 @@ export default {
   name: 'List',
   components: { OverdueList, DeleteValidation, EditDetailsList },
   props: {
-    projectName: {
-      type: String,
-      default: null
-    }
+    projectName: { type: String, default: null }
   },
   data() {
     return {
@@ -192,164 +214,133 @@ export default {
         { text: 'Assignee', value: 'assignee' },
         { text: 'Created By', value: 'createdBy' },
         { text: 'Created At', value: 'createdAt' },
+        { text: 'Status', value: 'status' },
         { text: 'Actions', value: 'actions', sortable: false },
       ],
+      
       tasks: [],
-
-      // CREATE
       createDialog: false,
       createFormValid: false,
       createLoading: false,
-      createForm: { title: '', description: '', priority: '', deadline: '', assignee: '' },
-
-      // EDIT
+      createForm: { title: '', description: '', priority: '', deadline: '', assignee: '', status: '-'},
       showEditDialog: false,
       editTask: null,
       editIndex: null,
       editLoading: false,
-
-      // DELETE
       showDeleteDialog: false,
       pendingDeleteTask: null,
       pendingDeleteIndex: null,
       deleteLoading: false,
-
-      // DESCRIPTION
       descriptionDialog: false,
       currentDescription: '',
-
-      // shared
       priorityOptions: ['Low', 'Medium', 'High'],
+      users: [],
       rules: { required: v => !!v || 'This field is required' },
     };
   },
+  mounted() {
+    this.fetchUsers();
+  },
   computed: {
-    displayProjectName() {
-      return this.projectName || 'All Projects';
-    },
+    displayProjectName() { return this.projectName || 'All Projects'; },
     activeTasks() {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      return this.tasks.filter(task => {
-        if (!task.deadline) return true;
-        const deadlineDate = new Date(task.deadline);
-        deadlineDate.setHours(0, 0, 0, 0);
-        return deadlineDate >= today;
-      });
+      const today = new Date(); today.setHours(0,0,0,0);
+      return this.tasks.filter(t => !t.deadline || new Date(t.deadline) >= today);
     },
     overdueTasks() {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      return this.tasks.filter(task => {
-        if (!task.deadline) return false;
-        const deadlineDate = new Date(task.deadline);
-        deadlineDate.setHours(0, 0, 0, 0);
-        return deadlineDate < today;
-      });
+      const today = new Date(); today.setHours(0,0,0,0);
+      return this.tasks.filter(t => t.deadline && new Date(t.deadline) < today);
     }
   },
   watch: {
-    projectName: {
-      immediate: true,
-      handler(newProject) {
-        this.fetchTasks(newProject);
-      }
-    }
+    projectName: { immediate: true, handler(newProject) { this.fetchTasks(newProject); } }
   },
   methods: {
+    async updateStatus(task, index) {
+      if (!task?.id) return;
+      let statusValue = task.status === 'Completed' ? 'completed' : 'pending';
+      try {
+        const payload = { ...task, status: statusValue };
+        const res = await axios.put(`/api/tasks/${task.id}`, payload);
+        this.$set(this.tasks, index, res.data || payload);
+      } catch (err) {
+        console.error('Failed to update status:', err);
+        alert('Failed to update status.');
+      }
+    },
+    async markComplete(task, index) {
+      if (!task?.id) return;
+      try {
+        const payload = { ...task, status: 'completed' }; // use status instead of completed
+        const res = await axios.put(`/api/tasks/${task.id}`, payload);
+        this.$set(this.tasks, index, res.data || payload);
+      } catch (err) {
+        console.error('Failed to mark task as complete:', err);
+        alert('Failed to mark task as complete.');
+      }
+    },
     /** CREATE */
     openCreateDialog() { this.resetCreateForm(); this.createDialog = true; },
     closeCreateDialog() { this.createDialog = false; },
-    resetCreateForm() {
-      this.createForm = { title: '', description: '', priority: '', deadline: '', assignee: '' };
-      this.$nextTick(() => { this.$refs.createForm?.resetValidation?.(); });
-    },
+    resetCreateForm() { this.createForm = { title: '', description: '', priority: '', deadline: '', assignee: '' }; this.$nextTick(() => { this.$refs.createForm?.resetValidation?.(); }); },
     async createTask() {
       if (!this.$refs.createForm.validate()) return;
-
       let createdBy = 'Unknown';
       const raw = localStorage.getItem('authUser');
-      if (raw) {
-        try { createdBy = JSON.parse(raw).name || JSON.parse(raw).email || 'Unknown'; } 
-        catch(e){ console.warn('Failed to parse authUser', e); }
-      }
-
-      const payload = { ...this.createForm, createdBy, createdAt: new Date().toISOString(), project: this.projectName };
+      if(raw){ try{ createdBy = JSON.parse(raw).name || JSON.parse(raw).email || 'Unknown'; } catch(e){ console.warn(e); } }
+      const payload = { ...this.createForm, status: '-', createdBy, createdAt: new Date().toISOString(), project: this.projectName };
       this.createLoading = true;
+      try { const res = await axios.post('/api/tasks', payload); this.tasks.push(res.data || payload); this.closeCreateDialog(); } 
+      catch(err){ console.error(err); alert('Failed to save task.'); }
+      finally{ this.createLoading = false; }
+    },
+    async fetchTasks(projectName){
+      try{ const params = {}; if(projectName) params.project = projectName; const res = await axios.get('/api/tasks', { params }); this.tasks = Array.isArray(res.data)?res.data:[]; }
+      catch(err){ console.error(err); this.tasks = []; }
+    },
+    openEditDialog(task, index){ this.editTask={...task}; this.editIndex=index; this.showEditDialog=true; },
+    async onEditSave(payload){
+      if(!payload?.id) return;
+      this.editLoading=true;
+      try{ const res = await axios.put(`/api/tasks/${payload.id}`, payload); this.$set(this.tasks, this.editIndex, res.data || payload); this.showEditDialog=false; }
+      catch(err){ console.error(err); alert('Update failed.'); }
+      finally{ this.editLoading=false; this.editTask=null; this.editIndex=null; }
+    },
+    onEditCancel(){ this.showEditDialog=false; this.editTask=null; this.editIndex=null; },
+    openDeleteDialog(task, index){ this.pendingDeleteTask=task; this.pendingDeleteIndex=index; this.showDeleteDialog=true; },
+    async onDeleteConfirmed(){
+      if(!this.pendingDeleteTask){ this.showDeleteDialog=false; return; }
+      const id=this.pendingDeleteTask.id;
+      if(!id){ this.tasks.splice(this.pendingDeleteIndex,1); this.clearPendingDelete(); return; }
+      this.deleteLoading=true;
+      try{ const res=await axios.delete(`/api/tasks/${id}`); if(res.status>=200&&res.status<300) this.tasks.splice(this.pendingDeleteIndex,1); else alert('Delete failed.'); }
+      catch(err){ console.error(err); alert('Delete failed.'); }
+      finally{ this.deleteLoading=false; this.clearPendingDelete(); }
+    },
+    onDeleteCancelled(){ this.clearPendingDelete(); },
+    clearPendingDelete(){ this.pendingDeleteTask=null; this.pendingDeleteIndex=null; this.showDeleteDialog=false; this.deleteLoading=false; },
+    viewDescription(task){ this.currentDescription=task?.description||''; this.descriptionDialog=true; },
+    formatDate(isoString,dateOnly=false){ if(!isoString) return '-'; const d=new Date(isoString); return isNaN(d)?isoString:(dateOnly?d.toLocaleDateString():d.toLocaleString()); },
+    priorityColor(priority){ switch(priority){ case 'High':return 'red'; case 'Medium':return 'orange'; case 'Low':return 'green'; default:return 'grey'; } },
+    onOverdueTaskDeleted(id){ this.tasks=this.tasks.filter(t=>t.id!==id); },
+    goBack(){ this.$emit('back'); },
+    async fetchUsers() {
       try {
-        const res = await axios.post('/api/tasks', payload);
-        this.tasks.push(res.data || payload);
-        this.closeCreateDialog();
-      } catch(err) { console.error(err); alert('Failed to save task.'); }
-      finally { this.createLoading = false; }
-    },
-
-    /** READ */
-    async fetchTasks(projectName) {
-      try {
-        const params = {};
-        if (projectName) params.project = projectName;
-        const res = await axios.get('/api/tasks', { params });
-        this.tasks = Array.isArray(res.data) ? res.data : [];
-      } catch (err) { console.error(err); this.tasks = []; }
-    },
-
-    /** EDIT */
-    openEditDialog(task, index) { this.editTask = { ...task }; this.editIndex = index; this.showEditDialog = true; },
-    async onEditSave(payload) {
-      if (!payload?.id) return;
-      this.editLoading = true;
-      try {
-        const res = await axios.put(`/api/tasks/${payload.id}`, payload);
-        this.$set(this.tasks, this.editIndex, res.data || payload);
-        this.showEditDialog = false;
-      } catch(err){ console.error(err); alert('Update failed.'); }
-      finally { this.editLoading = false; this.editTask = null; this.editIndex = null; }
-    },
-    onEditCancel() { this.showEditDialog = false; this.editTask = null; this.editIndex = null; },
-
-    /** DELETE */
-    openDeleteDialog(task, index) { this.pendingDeleteTask = task; this.pendingDeleteIndex = index; this.showDeleteDialog = true; },
-    async onDeleteConfirmed() {
-      if (!this.pendingDeleteTask) { this.showDeleteDialog = false; return; }
-      const id = this.pendingDeleteTask.id;
-      if (!id) { this.tasks.splice(this.pendingDeleteIndex, 1); this.clearPendingDelete(); return; }
-
-      this.deleteLoading = true;
-      try {
-        const res = await axios.delete(`/api/tasks/${id}`);
-        if (res.status >= 200 && res.status < 300) this.tasks.splice(this.pendingDeleteIndex, 1);
-        else alert('Delete failed.');
-      } catch(err) { console.error(err); alert('Delete failed.'); }
-      finally { this.deleteLoading = false; this.clearPendingDelete(); }
-    },
-    onDeleteCancelled() { this.clearPendingDelete(); },
-    clearPendingDelete() { this.pendingDeleteTask = null; this.pendingDeleteIndex = null; this.showDeleteDialog = false; this.deleteLoading = false; },
-
-    /** MISC */
-    viewDescription(task) { this.currentDescription = task?.description || ''; this.descriptionDialog = true; },
-    formatDate(isoString, dateOnly = false) { 
-      if (!isoString) return '-';
-      const d = new Date(isoString);
-      return isNaN(d) ? isoString : (dateOnly ? d.toLocaleDateString() : d.toLocaleString());
-    },
-    priorityColor(priority) {
-      switch(priority) {
-        case 'High': return 'red';
-        case 'Medium': return 'orange';
-        case 'Low': return 'green';
-        default: return 'grey';
+        const res = await axios.get('/api/users'); // your API endpoint
+        this.users = Array.isArray(res.data) ? res.data : [];
+      } catch (err) {
+        console.error('Failed to fetch users:', err);
+        this.users = [];
       }
     },
-    onOverdueTaskDeleted(id) { this.tasks = this.tasks.filter(t => t.id !== id); }
   }
 };
 </script>
 
 <style scoped>
-.list-card { max-width: 100%; min-height: 500px; margin: 0 auto; display: flex; flex-direction: column; }
-.card-top { flex: 0 0 auto; }
-.list-table-container { flex: 1 1 auto; display: flex; flex-direction: column; justify-content: flex-end; overflow-y: auto; }
-.full-height-table { flex: 1 1 auto; }
-.overdue-card { height: 100%; max-height: 700px; overflow-y: auto; }
+.list-card{ max-width:100%; min-height:500px; margin:0 auto; display:flex; flex-direction:column; }
+.card-top{ flex:0 0 auto; display:flex; justify-content:space-between; align-items:center; }
+.list-table-container{ flex:1 1 auto; display:flex; flex-direction:column; justify-content:flex-end; overflow-y:auto; }
+.full-height-table{ flex:1 1 auto; }
+.overdue-card{ height:100%; max-height:700px; overflow-y:auto; }
 </style>

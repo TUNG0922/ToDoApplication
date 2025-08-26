@@ -8,6 +8,7 @@
           label="Project Name"
           outlined
           dense
+          ref="projectInput"
         ></v-text-field>
       </v-card-text>
       <v-card-actions>
@@ -29,6 +30,10 @@ export default {
       type: Boolean,
       default: false,
     },
+    currentUser: {   // logged-in user from parent
+      type: String,
+      required: true,
+    },
   },
   data() {
     return {
@@ -36,7 +41,6 @@ export default {
     };
   },
   computed: {
-    // proxy for the dialog prop — getter returns prop, setter emits update for .sync
     localDialog: {
       get() {
         return this.dialog;
@@ -48,23 +52,20 @@ export default {
   },
   methods: {
     closeDialog() {
-      // close via proxy so parent gets update
       this.localDialog = false;
     },
     async submitProject() {
-      if (!this.projectName.trim()) {
-        // small client-side validation
-        this.$refs && this.$refs.projectInput && this.$refs.projectInput.focus && this.$refs.projectInput.focus();
-        return alert("Project name cannot be empty!");
-      }
+      if (!this.projectName.trim()) return alert("Project name cannot be empty!");
+
       try {
-        const res = await axios.post("/api/projects", { name: this.projectName.trim() });
-        this.$emit("project-added", res.data); // notify parent
+        const res = await axios.post("/api/projects", {
+          name: this.projectName.trim(),
+          created_by: this.currentUser,  // send current user as creator
+        });
+        this.$emit("project-added", res.data); // triggers handleProjectAdded in parent
         this.localDialog = false;
         this.projectName = "";
       } catch (err) {
-        console.error("Error adding project:", err);
-        // show a friendly error
         const msg = err?.response?.data || err.message || "Failed to add project.";
         alert(msg);
       }
