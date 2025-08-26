@@ -52,11 +52,15 @@
             </v-col>
 
             <v-col cols="12" sm="4">
-              <v-text-field
+              <v-autocomplete
                 v-model="form.assignee"
+                :items="users"
+                item-text="name"
+                item-value="name"
                 label="Assignee"
                 outlined
                 dense
+                clearable
                 :rules="[rules.required]"
                 required
               />
@@ -80,14 +84,11 @@
 export default {
   name: 'EditDetailsList',
   props: {
-    // v-model for dialog visibility
-    value: { type: Boolean, default: false },
-    // task to edit
-    task: { type: Object, default: () => null },
-    // optional: explicit dialog title
-    title: { type: String, default: '' },
-    // show loading state on save button
-    loading: { type: Boolean, default: false },
+    value: { type: Boolean, default: false },     // v-model for dialog visibility
+    task: { type: Object, default: () => null },  // task to edit
+    title: { type: String, default: '' },         // optional: explicit dialog title
+    loading: { type: Boolean, default: false },   // show loading state on save button
+    users: { type: Array, default: () => [] },    // <-- provide users list for assignee autocomplete
   },
   data() {
     return {
@@ -132,20 +133,17 @@ export default {
     hydrateFormFromTask() {
       const t = this.task || {};
       this.form = {
-        id: t.id || null,
-        title: t.title || '',
-        description: t.description || '',
-        priority: t.priority || '',
-        deadline: t.deadline || '',
-        assignee: t.assignee || '',
-        createdBy: t.createdBy || '',
-        createdAt: t.createdAt || '',
+        id: t.id ?? null,
+        title: t.title ?? '',
+        description: t.description ?? '',
+        priority: t.priority ?? '',
+        deadline: t.deadline ?? '',
+        assignee: t.assignee ?? '',
+        createdBy: t.createdBy ?? '',
+        createdAt: t.createdAt ?? '',
       };
-      // reset validation when dialog opens
       this.$nextTick(() => {
-        if (this.$refs.form && this.$refs.form.resetValidation) {
-          this.$refs.form.resetValidation();
-        }
+        this.$refs.form?.resetValidation?.();
       });
     },
     handleCancel() {
@@ -153,7 +151,7 @@ export default {
       this.$emit('input', false);
     },
     handleSave() {
-      const ok = this.$refs.form && this.$refs.form.validate ? this.$refs.form.validate() : false;
+      const ok = this.$refs.form?.validate ? this.$refs.form.validate() : false;
       if (!ok) return;
       const payload = { ...this.form };
       this.$emit('save', payload);

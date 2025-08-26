@@ -35,7 +35,7 @@
 
               <template v-slot:[`item.status`]="{ item, index }">
                 <v-select
-                  :items="['Pending', 'Completed']"
+                  :items="['-', 'Pending', 'Completed']"
                   v-model="item.status"
                   dense
                   hide-details
@@ -58,13 +58,6 @@
                 <v-btn icon @click="openDeleteDialog(item, index)" :title="'Delete ' + item.title">
                   <v-icon color="red">mdi-delete</v-icon>
                 </v-btn>
-                <!-- COMPLETE ICON -->
-                <v-btn icon 
-                    @click="markComplete(item, index)" 
-                    :disabled="item.status === 'completed'" 
-                    :title="'Mark ' + item.title + ' as complete'">
-                <v-icon color="green">mdi-check-circle</v-icon>
-              </v-btn>
               </template>
 
               <template v-slot:no-data>
@@ -79,10 +72,38 @@
       <v-col cols="12" md="3">
         <OverdueList
           :tasks="overdueTasks"
+          :headers="pendingHeaders"
+          :formatDate="formatDate"
+          :priorityColor="priorityColor"
           @task-deleted="onOverdueTaskDeleted"
+          @view="viewDescription"
+          @edit="openEditDialog"
         />
       </v-col>
     </v-row>
+
+    <!-- Pending Tasks component (middle) -->
+    <PendingTasks
+      :tasks="pendingTasks"
+      :headers="pendingHeaders"
+      :formatDate="formatDate"
+      :priorityColor="priorityColor"
+      @view="viewDescription"
+      @edit="openEditDialog"
+      @delete="openDeleteDialog"
+      @export="openPendingExport"
+    />
+
+    <!-- Completed Tasks component (bottom) -->
+    <CompletedTasks
+      :tasks="completedTasks"
+      :headers="completedHeaders"
+      :formatDate="formatDate"
+      :priorityColor="priorityColor"
+      @view="viewDescription"
+      @delete="openDeleteDialog"
+      @export="openCompletedExport"
+    />
 
     <!-- CREATE DIALOG -->
     <v-dialog v-model="createDialog" persistent max-width="700px">
@@ -186,6 +207,7 @@
       v-model="showEditDialog"
       :task="editTask"
       :loading="editLoading"
+      :users="users"
       title="Edit Task"
       @save="onEditSave"
       @cancel="onEditCancel"
@@ -195,13 +217,21 @@
 
 <script>
 import axios from 'axios';
+import CompletedTasks from '../../views/CompletedTasks.vue';
 import DeleteValidation from '../../views/DeleteValidation.vue';
 import EditDetailsList from '../../views/EditDetailsList.vue';
+import PendingTasks from '../../views/PendingTasks.vue';
 import OverdueList from './OverdueList.vue';
 
 export default {
   name: 'List',
-  components: { OverdueList, DeleteValidation, EditDetailsList },
+  components: {
+    PendingTasks,
+    CompletedTasks,
+    OverdueList,
+    DeleteValidation,
+    EditDetailsList
+  },
   props: {
     projectName: { type: String, default: null }
   },
@@ -217,8 +247,29 @@ export default {
         { text: 'Status', value: 'status' },
         { text: 'Actions', value: 'actions', sortable: false },
       ],
-      
+      pendingHeaders: [
+        { text: 'Name', value: 'title' },
+        { text: 'Priority', value: 'priority' },
+        { text: 'Deadline', value: 'deadline' },
+        { text: 'Assignee', value: 'assignee' },
+        { text: 'Created At', value: 'createdAt' },
+        { text: 'Actions', value: 'actions', sortable: false },
+      ],
+      completedHeaders: [
+        { text: 'Name', value: 'title' },
+        { text: 'Priority', value: 'priority' },
+        { text: 'Deadline', value: 'deadline' },
+        { text: 'Assignee', value: 'assignee' },
+        { text: 'Completed At', value: 'createdAt' },
+        { text: 'Actions', value: 'actions', sortable: false },
+      ],
+
+      // store all fetched tasks (normalized)
+      allTasks: [],
+
+      // tasks shown in main area (user-filtered if currentUser present)
       tasks: [],
+
       createDialog: false,
       createFormValid: false,
       createLoading: false,
@@ -240,9 +291,12 @@ export default {
   },
   mounted() {
     this.fetchUsers();
+    this.fetchTasks(this.projectName);
   },
   computed: {
     displayProjectName() { return this.projectName || 'All Projects'; },
+
+    // main list: non-overdue tasks (from this.tasks - which is user filtered when applicable)
     activeTasks() {
       const today = new Date(); today.setHours(0,0,0,0);
       return this.tasks.filter(t => !t.deadline || new Date(t.deadline) >= today);
@@ -250,7 +304,18 @@ export default {
     overdueTasks() {
       const today = new Date(); today.setHours(0,0,0,0);
       return this.tasks.filter(t => t.deadline && new Date(t.deadline) < today);
-    }
+    },
+    // pending tasks (from this.tasks so they honor user filtering if present)
+    pendingTasks() {
+      return this.tasks.filter(t => t.status && t.status.toLowerCase() === 'pending');
+    },
+    // completed tasks: IMPORTANT — use allTasks (not this.tasks) and filter by projectName + status=Completed
+    completedTasks() {
+      return this.allTasks.filter(t => {
+        const matchesProject = this.projectName ? (t.projectName === this.projectName) : true;
+        return matchesProject && t.status && t.status.toLowerCase() === 'completed';
+      });
+    },
   },
   watch: {
     projectName: { immediate: true, handler(newProject) { this.fetchTasks(newProject); } }
@@ -258,31 +323,50 @@ export default {
   methods: {
     async updateStatus(task, index) {
       if (!task?.id) return;
-      let statusValue = task.status === 'Completed' ? 'completed' : 'pending';
+
+      // keep '-' as '-' (no auto-conversion)
+      if (task.status === '-') {
+        this.$set(this.tasks, index, { ...task });
+        return;
+      }
+
+      const statusValue = task.status === 'Completed' ? 'completed' : 'pending';
+
       try {
         const payload = { ...task, status: statusValue };
         const res = await axios.put(`/api/tasks/${task.id}`, payload);
-        this.$set(this.tasks, index, res.data || payload);
+
+        const updatedTask = {
+          ...res.data,
+          status: res.data.status === '-' || !res.data.status
+                  ? '-'
+                  : res.data.status.toLowerCase() === 'completed'
+                    ? 'Completed'
+                    : res.data.status.toLowerCase() === 'pending'
+                      ? 'Pending'
+                      : res.data.status
+        };
+
+        // update both allTasks and tasks (if item exists there)
+        const allIndex = this.allTasks.findIndex(x => x.id === updatedTask.id);
+        if (allIndex !== -1) this.$set(this.allTasks, allIndex, updatedTask);
+
+        const idx = this.tasks.findIndex(x => x.id === updatedTask.id);
+        if (idx !== -1) this.$set(this.tasks, idx, updatedTask);
+
       } catch (err) {
         console.error('Failed to update status:', err);
         alert('Failed to update status.');
       }
     },
-    async markComplete(task, index) {
-      if (!task?.id) return;
-      try {
-        const payload = { ...task, status: 'completed' }; // use status instead of completed
-        const res = await axios.put(`/api/tasks/${task.id}`, payload);
-        this.$set(this.tasks, index, res.data || payload);
-      } catch (err) {
-        console.error('Failed to mark task as complete:', err);
-        alert('Failed to mark task as complete.');
-      }
-    },
+
     /** CREATE */
     openCreateDialog() { this.resetCreateForm(); this.createDialog = true; },
     closeCreateDialog() { this.createDialog = false; },
-    resetCreateForm() { this.createForm = { title: '', description: '', priority: '', deadline: '', assignee: '' }; this.$nextTick(() => { this.$refs.createForm?.resetValidation?.(); }); },
+    resetCreateForm() {
+      this.createForm = { title: '', description: '', priority: '', deadline: '', assignee: '', status: '-' };
+      this.$nextTick(() => { this.$refs.createForm?.resetValidation?.(); });
+    },
     async createTask() {
       if (!this.$refs.createForm.validate()) return;
 
@@ -291,31 +375,30 @@ export default {
         return;
       }
 
-      // Automatically set createdBy
       let createdBy = 'Unknown';
       const raw = localStorage.getItem('authUser');
       if (raw) {
-        try {
-          const user = JSON.parse(raw);
-          createdBy = user.name || user.email || 'Unknown';
-        } catch (e) {
-          console.warn(e);
-        }
+        try { const user = JSON.parse(raw); createdBy = user.name || user.email || 'Unknown'; } catch(e){ console.warn(e); }
       }
 
-      const payload = {
-        ...this.createForm,
-        status: '-',
-        createdBy,
-        createdAt: new Date().toISOString(),
-        projectName: this.projectName,  // MUST match backend field
-      };
+      const payload = { ...this.createForm, status: '-', createdBy, createdAt: new Date().toISOString(), projectName: this.projectName };
 
       this.createLoading = true;
-
       try {
         const res = await axios.post('/api/tasks', payload);
-        this.tasks.push(res.data || payload);
+        // push to both lists appropriately
+        const created = res.data || payload;
+        this.allTasks.push(created);
+        // if current user should see it, push to tasks as well
+        const rawUser = localStorage.getItem('authUser');
+        let currentUser = null;
+        if (rawUser) {
+          try { currentUser = JSON.parse(rawUser).name; } catch(e){/*noop*/ }
+        }
+        if (!currentUser || created.createdBy === currentUser || created.assignee === currentUser) {
+          this.tasks.push(created);
+        }
+
         this.closeCreateDialog();
         this.resetCreateForm();
       } catch (err) {
@@ -325,80 +408,158 @@ export default {
         this.createLoading = false;
       }
     },
+
     async fetchTasks(projectName) {
       try {
         const params = {};
-        
-        // Filter by project if provided
         if (projectName) params.project = projectName;
 
-        // Get current logged-in user from localStorage
+        // do NOT send user param here - we'll keep a full copy of tasks in allTasks
+        // but still detect currentUser to create the user-filtered tasks list
         const raw = localStorage.getItem('authUser');
         let currentUser = null;
         if (raw) {
-          try {
-            currentUser = JSON.parse(raw).name;
-          } catch (e) {
-            console.warn('Failed to parse authUser from localStorage', e);
-          }
-        }
-
-        if (currentUser) {
-          // Send currentUser to backend to filter tasks by createdBy or assignee
-          params.user = currentUser;
+          try { currentUser = JSON.parse(raw).name; } catch (e) { console.warn('Failed to parse authUser', e); }
         }
 
         const res = await axios.get('/api/tasks', { params });
-        
-        // Filter on client-side if backend does not support it
+        let tasks = Array.isArray(res.data) ? res.data : [];
+
+        // Normalize status: Completed / Pending / keep-as-is / '-'
+        tasks = tasks.map(t => ({
+          ...t,
+          status: t.status
+                  ? (t.status.toLowerCase() === 'completed' ? 'Completed'
+                    : t.status.toLowerCase() === 'pending' ? 'Pending'
+                    : t.status)
+                  : '-'
+        }));
+
+        // store full normalized list
+        this.allTasks = tasks;
+
+        // set tasks shown in main area: if currentUser is present, filter by createdBy or assignee
         if (currentUser) {
-          this.tasks = Array.isArray(res.data) ? res.data.filter(
-            t => t.createdBy === currentUser || t.assignee === currentUser
-          ) : [];
+          this.tasks = tasks.filter(t => t.createdBy === currentUser || t.assignee === currentUser);
         } else {
-          this.tasks = Array.isArray(res.data) ? res.data : [];
+          this.tasks = tasks;
         }
 
       } catch (err) {
         console.error(err);
+        this.allTasks = [];
         this.tasks = [];
       }
     },
-    openEditDialog(task, index){ this.editTask={...task}; this.editIndex=index; this.showEditDialog=true; },
-    async onEditSave(payload){
-      if(!payload?.id) return;
-      this.editLoading=true;
-      try{ const res = await axios.put(`/api/tasks/${payload.id}`, payload); this.$set(this.tasks, this.editIndex, res.data || payload); this.showEditDialog=false; }
-      catch(err){ console.error(err); alert('Update failed.'); }
-      finally{ this.editLoading=false; this.editTask=null; this.editIndex=null; }
+
+    openEditDialog(task, index) {
+      this.editTask = { ...task };
+      this.editIndex = index;
+      this.showEditDialog = true;
     },
-    onEditCancel(){ this.showEditDialog=false; this.editTask=null; this.editIndex=null; },
-    openDeleteDialog(task, index){ this.pendingDeleteTask=task; this.pendingDeleteIndex=index; this.showDeleteDialog=true; },
-    async onDeleteConfirmed(){
-      if(!this.pendingDeleteTask){ this.showDeleteDialog=false; return; }
-      const id=this.pendingDeleteTask.id;
-      if(!id){ this.tasks.splice(this.pendingDeleteIndex,1); this.clearPendingDelete(); return; }
-      this.deleteLoading=true;
-      try{ const res=await axios.delete(`/api/tasks/${id}`); if(res.status>=200&&res.status<300) this.tasks.splice(this.pendingDeleteIndex,1); else alert('Delete failed.'); }
-      catch(err){ console.error(err); alert('Delete failed.'); }
-      finally{ this.deleteLoading=false; this.clearPendingDelete(); }
+
+    async onEditSave(payload) {
+      if (!payload?.id) return;
+      this.editLoading = true;
+      try {
+        const res = await axios.put(`/api/tasks/${payload.id}`, payload);
+        const updated = res.data || payload;
+
+        // update both allTasks and tasks lists
+        const allIndex = this.allTasks.findIndex(x => x.id === updated.id);
+        if (allIndex !== -1) this.$set(this.allTasks, allIndex, updated);
+
+        const idx = this.tasks.findIndex(x => x.id === updated.id);
+        if (idx !== -1) this.$set(this.tasks, idx, updated);
+
+        this.showEditDialog = false;
+      } catch (err) {
+        console.error(err);
+        alert('Update failed.');
+      } finally {
+        this.editLoading = false;
+        this.editTask = null;
+        this.editIndex = null;
+      }
     },
-    onDeleteCancelled(){ this.clearPendingDelete(); },
-    clearPendingDelete(){ this.pendingDeleteTask=null; this.pendingDeleteIndex=null; this.showDeleteDialog=false; this.deleteLoading=false; },
-    viewDescription(task){ this.currentDescription=task?.description||''; this.descriptionDialog=true; },
-    formatDate(isoString,dateOnly=false){ if(!isoString) return '-'; const d=new Date(isoString); return isNaN(d)?isoString:(dateOnly?d.toLocaleDateString():d.toLocaleString()); },
-    priorityColor(priority){ switch(priority){ case 'High':return 'red'; case 'Medium':return 'orange'; case 'Low':return 'green'; default:return 'grey'; } },
-    onOverdueTaskDeleted(id){ this.tasks=this.tasks.filter(t=>t.id!==id); },
-    goBack(){ this.$emit('back'); },
+
+    openDeleteDialog(task, index) {
+      this.pendingDeleteTask = task;
+      this.pendingDeleteIndex = index;
+      this.showDeleteDialog = true;
+    },
+
+    async onDeleteConfirmed() {
+      if (!this.pendingDeleteTask) { this.showDeleteDialog = false; return; }
+      const id = this.pendingDeleteTask.id;
+      if (!id) { this.tasks.splice(this.pendingDeleteIndex, 1); this.clearPendingDelete(); return; }
+      this.deleteLoading = true;
+      try {
+        const res = await axios.delete(`/api/tasks/${id}`);
+        if (res.status >= 200 && res.status < 300) {
+          // remove from both lists
+          this.tasks = this.tasks.filter(t => t.id !== id);
+          this.allTasks = this.allTasks.filter(t => t.id !== id);
+        } else {
+          alert('Delete failed.');
+        }
+      } catch (err) {
+        console.error(err);
+        alert('Delete failed.');
+      } finally {
+        this.deleteLoading = false;
+        this.clearPendingDelete();
+      }
+    },
+
+    onDeleteCancelled() { this.clearPendingDelete(); },
+
+    clearPendingDelete() {
+      this.pendingDeleteTask = null;
+      this.pendingDeleteIndex = null;
+      this.showDeleteDialog = false;
+      this.deleteLoading = false;
+    },
+
+    viewDescription(task) {
+      this.currentDescription = task?.description || '';
+      this.descriptionDialog = true;
+    },
+
+    formatDate(isoString, dateOnly = false) {
+      if (!isoString) return '-';
+      const d = new Date(isoString);
+      return isNaN(d) ? isoString : (dateOnly ? d.toLocaleDateString() : d.toLocaleString());
+    },
+
+    priorityColor(priority) {
+      switch (priority) {
+        case 'High': return 'red';
+        case 'Medium': return 'orange';
+        case 'Low': return 'green';
+        default: return 'grey';
+      }
+    },
+
+    onOverdueTaskDeleted(id) {
+      this.tasks = this.tasks.filter(t => t.id !== id);
+      this.allTasks = this.allTasks.filter(t => t.id !== id);
+    },
+
+    goBack() { this.$emit('back'); },
+
     async fetchUsers() {
       try {
-        const res = await axios.get('/api/users'); // your API endpoint
+        const res = await axios.get('/api/users');
         this.users = Array.isArray(res.data) ? res.data : [];
       } catch (err) {
         console.error('Failed to fetch users:', err);
         this.users = [];
       }
     },
+
+    openPendingExport() { alert('Export pending tasks (not implemented).'); },
+    openCompletedExport() { alert('Export completed tasks (not implemented).'); }
   }
 };
 </script>
@@ -409,4 +570,6 @@ export default {
 .list-table-container{ flex:1 1 auto; display:flex; flex-direction:column; justify-content:flex-end; overflow-y:auto; }
 .full-height-table{ flex:1 1 auto; }
 .overdue-card{ height:100%; max-height:700px; overflow-y:auto; }
+.completed-card{ margin-top:16px; }
+.pending-card{ margin-top:16px; }
 </style>
