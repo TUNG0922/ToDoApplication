@@ -15,6 +15,11 @@
 
     <v-spacer></v-spacer> <!-- pushes Sign Out to the right -->
 
+    <!-- Notification button -->
+    <v-btn icon @click="openNotifications" :title="'Notifications'">
+      <v-icon>mdi-bell</v-icon>
+    </v-btn>
+
     <v-btn text color="red lighten-1" @click="signOut">
       Sign Out
     </v-btn>
@@ -31,7 +36,6 @@ export default {
         try {
           const user = JSON.parse(raw);
           if (user && user.email) {
-            // Only navigate if not already on UserDashboard
             if (this.$route.name !== "UserDashboard") {
               this.$router.push({ name: "UserDashboard" });
             }
@@ -41,7 +45,6 @@ export default {
           localStorage.removeItem("authUser");
         }
       }
-      // Navigate to SignIn if no user
       if (this.$route.name !== "SignIn") {
         this.$router.push({ name: "SignIn" });
       }
@@ -49,8 +52,13 @@ export default {
 
     signOut() {
       localStorage.removeItem("authUser");
-      localStorage.removeItem("authToken"); // if you use tokens
+      localStorage.removeItem("authToken"); 
       this.$router.replace({ name: "SignIn" });
+    },
+
+    openNotifications() {
+      // You can later implement showing a notifications panel
+      alert("Notifications clicked!");
     }
   }
 }
