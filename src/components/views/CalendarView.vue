@@ -40,6 +40,7 @@
                   <div class="event-meta">
                     <span class="event-assignee" v-if="event.assignee">👤 {{ event.assignee }}</span>
                     <span class="event-priority" v-if="event.priority">{{ event.priority }}</span>
+                    <span class="event-status" v-if="event.status && event.status !== '-'">• {{ event.status }}</span>
                   </div>
                 </div>
               </template>
@@ -50,7 +51,7 @@
         <!-- Legend -->
         <v-col cols="12" md="3">
           <v-card outlined class="side-card">
-            <v-card-title class="subtitle-1 font-weight-medium">Legend</v-card-title>
+            <v-card-title class="subtitle-1 font-weight-medium">Priority</v-card-title>
             <v-card-text>
               <div class="legend-row">
                 <span class="legend-dot" style="background: #e53935;"></span>
@@ -87,13 +88,20 @@
                 <div v-if="selectedEvent?.description">{{ selectedEvent.description }}</div>
                 <div v-else class="grey--text">No description provided.</div>
               </v-col>
-              <v-col cols="12" sm="6">
+
+              <v-col cols="12" sm="4">
                 <strong>Assignee</strong>
                 <div>{{ selectedEvent?.assignee || '-' }}</div>
               </v-col>
-              <v-col cols="12" sm="6">
+
+              <v-col cols="12" sm="4">
                 <strong>Priority</strong>
                 <div>{{ selectedEvent?.priority || '-' }}</div>
+              </v-col>
+
+              <v-col cols="12" sm="4">
+                <strong>Status</strong>
+                <div>{{ selectedEvent?.status || '-' }}</div>
               </v-col>
             </v-row>
           </v-card-text>
@@ -152,6 +160,14 @@ export default {
           const startIso = start instanceof Date && !isNaN(start)
             ? start.toISOString().substr(0, 10)
             : String(t.deadline);
+
+          // normalize status: Completed / Pending / '-' / keep original
+          const normalizedStatus = t.status
+            ? (t.status.toLowerCase() === 'completed' ? 'Completed'
+              : t.status.toLowerCase() === 'pending' ? 'Pending'
+              : t.status)
+            : '-';
+
           return {
             id: t.id,
             name: t.title || 'Untitled',
@@ -160,6 +176,7 @@ export default {
             description: t.description,
             assignee: t.assignee,
             priority: t.priority,
+            status: normalizedStatus,
             raw: t,
           };
         });
@@ -172,10 +189,19 @@ export default {
       return new Date(isDateOnly ? `${s}T00:00:00` : s);
     },
     getEventColor(event) {
+      // Color by priority; fallback color for tasks without priority
       const p = (event.priority || '').toLowerCase();
       if (p === 'high') return '#e53935';
       if (p === 'medium') return '#fb8c00';
       if (p === 'low') return '#43a047';
+
+      // Optionally tint color by status when priority missing:
+      if (event.status) {
+        const s = String(event.status).toLowerCase();
+        if (s === 'completed') return '#6c757d'; // gray for completed
+        if (s === 'pending') return '#1976d2'; // primary for pending
+      }
+
       return '#1976d2';
     },
     onEventClick({ event }) {
@@ -274,6 +300,7 @@ export default {
   justify-content: space-between;
   flex-wrap: wrap;
   margin-top: 2px;
+  gap: 8px;
 }
 
 .event-assignee {
@@ -282,6 +309,11 @@ export default {
 
 .event-priority {
   font-weight: bold;
+}
+
+.event-status {
+  color: #333;
+  font-weight: 600;
 }
 
 .side-card {

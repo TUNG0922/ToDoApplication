@@ -15,11 +15,7 @@
 
     <v-spacer></v-spacer> <!-- pushes Sign Out to the right -->
 
-    <!-- Notification button -->
-    <v-btn icon @click="openNotifications" :title="'Notifications'">
-      <v-icon>mdi-bell</v-icon>
-    </v-btn>
-
+    <!-- Sign Out button -->
     <v-btn text color="red lighten-1" @click="signOut">
       Sign Out
     </v-btn>
@@ -54,11 +50,6 @@ export default {
       localStorage.removeItem("authUser");
       localStorage.removeItem("authToken"); 
       this.$router.replace({ name: "SignIn" });
-    },
-
-    openNotifications() {
-      // You can later implement showing a notifications panel
-      alert("Notifications clicked!");
     }
   }
 }
