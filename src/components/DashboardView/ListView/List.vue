@@ -285,18 +285,84 @@ export default {
     resetCreateForm() { this.createForm = { title: '', description: '', priority: '', deadline: '', assignee: '' }; this.$nextTick(() => { this.$refs.createForm?.resetValidation?.(); }); },
     async createTask() {
       if (!this.$refs.createForm.validate()) return;
+
+      if (!this.projectName) {
+        alert('Project name is required to create a task.');
+        return;
+      }
+
+      // Automatically set createdBy
       let createdBy = 'Unknown';
       const raw = localStorage.getItem('authUser');
-      if(raw){ try{ createdBy = JSON.parse(raw).name || JSON.parse(raw).email || 'Unknown'; } catch(e){ console.warn(e); } }
-      const payload = { ...this.createForm, status: '-', createdBy, createdAt: new Date().toISOString(), project: this.projectName };
+      if (raw) {
+        try {
+          const user = JSON.parse(raw);
+          createdBy = user.name || user.email || 'Unknown';
+        } catch (e) {
+          console.warn(e);
+        }
+      }
+
+      const payload = {
+        ...this.createForm,
+        status: '-',
+        createdBy,
+        createdAt: new Date().toISOString(),
+        projectName: this.projectName,  // MUST match backend field
+      };
+
       this.createLoading = true;
-      try { const res = await axios.post('/api/tasks', payload); this.tasks.push(res.data || payload); this.closeCreateDialog(); } 
-      catch(err){ console.error(err); alert('Failed to save task.'); }
-      finally{ this.createLoading = false; }
+
+      try {
+        const res = await axios.post('/api/tasks', payload);
+        this.tasks.push(res.data || payload);
+        this.closeCreateDialog();
+        this.resetCreateForm();
+      } catch (err) {
+        console.error(err);
+        alert('Failed to save task.');
+      } finally {
+        this.createLoading = false;
+      }
     },
-    async fetchTasks(projectName){
-      try{ const params = {}; if(projectName) params.project = projectName; const res = await axios.get('/api/tasks', { params }); this.tasks = Array.isArray(res.data)?res.data:[]; }
-      catch(err){ console.error(err); this.tasks = []; }
+    async fetchTasks(projectName) {
+      try {
+        const params = {};
+        
+        // Filter by project if provided
+        if (projectName) params.project = projectName;
+
+        // Get current logged-in user from localStorage
+        const raw = localStorage.getItem('authUser');
+        let currentUser = null;
+        if (raw) {
+          try {
+            currentUser = JSON.parse(raw).name;
+          } catch (e) {
+            console.warn('Failed to parse authUser from localStorage', e);
+          }
+        }
+
+        if (currentUser) {
+          // Send currentUser to backend to filter tasks by createdBy or assignee
+          params.user = currentUser;
+        }
+
+        const res = await axios.get('/api/tasks', { params });
+        
+        // Filter on client-side if backend does not support it
+        if (currentUser) {
+          this.tasks = Array.isArray(res.data) ? res.data.filter(
+            t => t.createdBy === currentUser || t.assignee === currentUser
+          ) : [];
+        } else {
+          this.tasks = Array.isArray(res.data) ? res.data : [];
+        }
+
+      } catch (err) {
+        console.error(err);
+        this.tasks = [];
+      }
     },
     openEditDialog(task, index){ this.editTask={...task}; this.editIndex=index; this.showEditDialog=true; },
     async onEditSave(payload){
